@@ -8,6 +8,7 @@ This project provides a full-stack web service to retrieve, aggregate, and visua
 - **Data Transformation:** Uses `pandas` for highly efficient filtering and column mapping.
 - **Timezone & DST Handling:** Converts all UTC timestamps to `Europe/Madrid` (CET/CEST) dynamically, ensuring strict Daylight-Saving Time (DST) compliance.
 - **Time Aggregation:** Supports `Hourly`, `Daily`, and `Monthly` data resampling (calculating the mean of numerical variables) directly at the Madrid local midnight boundaries.
+- - **Defensive Programming & Validation:** Strict input validation for ISO 8601 date formats and temporal coherence. Invalid requests are caught at the API boundary, returning descriptive 400 Bad Request errors to prevent unnecessary downstream processing.
 
 ## 3. Prerequisites
 - Python 3.9 or higher.
@@ -52,3 +53,10 @@ uvicorn main:app --reload
 Once the server is running, navigate to [http://localhost:8000/docs](http://localhost:8000/docs) in your web browser. 
 
 FastAPI automatically generates an interactive Swagger UI documentation where you can test the endpoints, pass datetime parameters, filter required data types, and review the timezone-aware JSON responses.
+
+## 7. Testing
+Automated unit tests have been implemented using `pytest` and FastAPI's `TestClient` to ensure API reliability and logical accuracy. The test suite validates the defensive error-handling mechanisms and utilizes mocking (`@patch`) to deterministically test the Pandas aggregation logic without consuming external API quotas.
+
+To run the test suite, ensure your virtual environment is active and execute:
+```bash
+pytest
