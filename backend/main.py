@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Query
 from typing import List, Optional
 from aemet_client import fetch_aemet_data
+from data_processor import process_weather_data
 
 app = FastAPI(title="Antarctica Wind Farm AEMET API")
 
@@ -19,10 +20,13 @@ def get_meteo_data(
     """
 
     raw_data = fetch_aemet_data(fechaIniStr, fechaFinStr, identificacion)
+
+    processed_data = process_weather_data(raw_data, data_types, aggregation)
     
     # Return a test message with the data to check the APY Key functionality
     return {
         "status": "success",
         "station_requested": identificacion,
-        "data": raw_data
+        "data_types_filtered": data_types if data_types else "All",
+        "data": processed_data
     }
