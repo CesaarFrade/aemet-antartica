@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Query
 from typing import List, Optional
+from aemet_client import fetch_aemet_data
 
 app = FastAPI(title="Antarctica Wind Farm AEMET API")
 
@@ -16,17 +17,12 @@ def get_meteo_data(
     """
     Retrieves meteorological data for the specified station within the given date range.
     """
+
+    raw_data = fetch_aemet_data(fechaIniStr, fechaFinStr, identificacion)
     
-    # Return a test message with the received parameters to ensure correct parsing
+    # Return a test message with the data to check the APY Key functionality
     return {
         "status": "success",
-        "message": "Endpoint is working correctly",
-        "parameters": {
-            "start_date": fechaIniStr,
-            "end_date": fechaFinStr,
-            "station": identificacion,
-            "location": location,
-            "aggregation": aggregation,
-            "data_types": data_types
-        }
+        "station_requested": identificacion,
+        "data": raw_data
     }
