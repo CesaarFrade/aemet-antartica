@@ -5,10 +5,12 @@ This project provides a full-stack web service to retrieve, aggregate, and visua
 
 ## 2. Key Features (Core API)
 - **HATEOAS Integration:** Seamlessly handles the AEMET two-step data retrieval process.
+- **Smart Database Caching (SQLite):** Implements an interception layer using SQLAlchemy ORM. Caches historical data locally to prevent source API overload, delivering millisecond response times for intraday traders (Cache Hit/Miss logic).
+- **Professional Logging:** Centralized tracking of cache operations, data ingestion, and system behavior to facilitate robust troubleshooting and monitoring.
 - **Data Transformation:** Uses `pandas` for highly efficient filtering and column mapping.
 - **Timezone & DST Handling:** Converts all UTC timestamps to `Europe/Madrid` (CET/CEST) dynamically, ensuring strict Daylight-Saving Time (DST) compliance.
 - **Time Aggregation:** Supports `Hourly`, `Daily`, and `Monthly` data resampling (calculating the mean of numerical variables) directly at the Madrid local midnight boundaries.
-- - **Defensive Programming & Validation:** Strict input validation for ISO 8601 date formats and temporal coherence. Invalid requests are caught at the API boundary, returning descriptive 400 Bad Request errors to prevent unnecessary downstream processing.
+- **Defensive Programming & Validation:** Strict input validation for ISO 8601 date formats and temporal coherence. Invalid requests are caught at the API boundary, returning descriptive 400 Bad Request errors to prevent unnecessary downstream processing.
 
 ## 3. Prerequisites
 - Python 3.9 or higher.
