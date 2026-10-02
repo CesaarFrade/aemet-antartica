@@ -6,9 +6,16 @@ export const fetchMeteoData = async (
   fechaIni: string,
   fechaFin: string,
   estacion: string,
-  aggregation: string = 'None'
+  aggregation: string = 'None',
+  dataTypes: string[] = []
 ): Promise<ApiResponse> => {
-  const url = `${API_BASE_URL}/api/antartida/datos/fechaini/${fechaIni}/fechafin/${fechaFin}/estacion/${encodeURIComponent(estacion)}?aggregation=${aggregation}`;
+  let url = `${API_BASE_URL}/api/antartida/datos/fechaini/${fechaIni}/fechafin/${fechaFin}/estacion/${encodeURIComponent(estacion)}?aggregation=${aggregation}`;
+
+  if (dataTypes.length > 0) {
+    dataTypes.forEach(type => {
+      url += `&data_types=${encodeURIComponent(type)}`;
+    });
+  }
 
   const response = await fetch(url);
   
