@@ -1,7 +1,10 @@
 import os
 import requests
 from dotenv import load_dotenv
+from core.logger import get_logger
 
+
+logger = get_logger("aemet_client")
 # Load environment variables
 load_dotenv()
 AEMET_API_KEY = os.getenv("AEMET_API_KEY")
@@ -47,9 +50,9 @@ def fetch_aemet_data(start_date: str, end_date: str, station_name: str):
             
             return datos_response.json()
         else:
-            print(f"AEMET API Error: {meta_data.get('descripcion')}")
+            logger.error(f"AEMET API Error: {meta_data.get('descripcion')}")
             return []
 
     except requests.exceptions.RequestException as e:
-        print(f"Connection error with AEMET: {e}")
+        logger.error(f"Connection error with AEMET: {e}")
         return []
