@@ -56,3 +56,4 @@ def fetch_aemet_data(start_date: str, end_date: str, station_name: str):
     except requests.exceptions.RequestException as e:
         logger.error(f"Connection error with AEMET: {e}")
         return []
+    
