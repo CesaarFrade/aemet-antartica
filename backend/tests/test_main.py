@@ -42,8 +42,8 @@ def test_valid_request_processes_data_correctly(mock_fetch, client):
     ]
 
     response = client.get(
-        f"/api/antartida/datos/fechaini/2024-01-01T00:00:00/fechafin/2024-01-02T00:00:00"
-        f"/estacion/1234?aggregation=Daily&data_types=temperature"
+        "/api/antartida/datos/fechaini/2024-01-01T00:00:00/fechafin/2024-01-02T00:00:00"
+        "/estacion/1234?aggregation=Daily&data_types=temperature"
     )
 
     assert response.status_code == 200

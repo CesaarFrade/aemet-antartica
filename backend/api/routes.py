@@ -2,16 +2,31 @@ from fastapi import APIRouter, Query, HTTPException, Depends
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from typing import List, Literal, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 # Relative imports to the sibling layers
 from services.aemet_client import fetch_aemet_data
 from services.data_processor import process_weather_data
-from models.database import SessionLocal, MeteoRecord
+from models.database import SessionLocal, MeteoRecord, StationCacheState
+from core.config import CACHE_TTL_MINUTES
+from core.exceptions import UpstreamAEMETError
 from core.logger import get_logger
+from core.stations import canonical_station_id
 
 logger = get_logger("routes")
 router = APIRouter()
+
+
+def _utcnow() -> datetime:
+    """
+    Current UTC wall-clock as a naive datetime.
+
+    The rest of the pipeline handles naive UTC timestamps, so freshness stamps are
+    stored the same way to keep every comparison in a single frame of reference.
+    `datetime.now(timezone.utc)` avoids the deprecated `utcnow()`.
+    """
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
 
 def _to_grid(dt: datetime) -> datetime:
     """
@@ -74,6 +89,9 @@ def get_meteo_data(
 
     Raises:
         HTTPException: 400 when a date is malformed or the range is inverted.
+            422 when `aggregation` or `data_types` are outside the allowed values.
+            502 when the AEMET upstream fails; an upstream outage is never
+            reported as an empty station.
     """
     # --- DATE VALIDATION ---
     # AEMET timestamps are UTC wall-clock strings, so the range is handled as naive
@@ -101,25 +119,38 @@ def get_meteo_data(
             detail="Invalid date format. Expected format: YYYY-MM-DDTHH:MM:SS (e.g., 2024-01-01T00:00:00UTC)"
         )
     # --- REQUEST LOGGING ---
-    logger.info(f"Incoming request for station: '{identificacion}' from {dt_ini} to {dt_fin}")
+    # The challenge accepts either the station name or its AEMET code, but both
+    # spell the same physical station. Everything downstream (cache key, coverage
+    # probe, AEMET request) uses the canonical code, so a station is stored once
+    # instead of once per spelling. `station_requested` still echoes the raw input.
+    station_key = canonical_station_id(identificacion)
+    logger.info(
+        f"Incoming request for station: '{identificacion}' (resolved: '{station_key}') "
+        f"from {dt_ini} to {dt_fin}"
+    )
 
-    # --- CACHE COVERAGE LOOKUP ---
-    # A request is only served from SQLite when the stored observations already
-    # span the whole requested window; anything narrower goes back to AEMET for
-    # the full range. The first and last cached timestamps are enough to decide
-    # that, and they come from a cheap aggregate over the per-station index.
+    # --- CACHE COVERAGE AND FRESHNESS ---
+    # A request is served from SQLite only when both conditions hold:
+    #
+    #   1. the stored observations span the whole requested window, and
+    #   2. the station was refreshed recently enough.
+    #
+    # Coverage alone would freeze a window forever once filled, which is unusable
+    # for the intraday traders this service targets: AEMET revises historical data
+    # several times a day, and "the last 3 hours" must keep moving. The freshness
+    # stamp bounds the upstream cost to one call per station per TTL window while
+    # guaranteeing no hit is ever older than CACHE_TTL_MINUTES.
     #
     # TODO: min/max only proves the outer bounds. A hole in the middle of the
     # window (rows missing for a few hours) still counts as a hit and is never
     # refilled. Either compare the row count against the expected number of
     # 10-minute slots, or persist explicit coverage intervals per station.
-    # TODO: the refill is still all-or-nothing. Fetching only the uncovered gaps,
-    # plus a TTL per station, would also serve the intraday refreshes the traders
-    # need, since AEMET revises historical data a few times per day.
+    # TODO: the refill is all-or-nothing, so an expired wide window refetches its
+    # whole span. Fetching only the uncovered or expired tail would cut that cost.
     cache_stats = db.query(
         func.min(MeteoRecord.timestamp),
         func.max(MeteoRecord.timestamp)
-    ).filter(MeteoRecord.station_id == identificacion).first()
+    ).filter(MeteoRecord.station_id == station_key).first()
 
     # Both bounds are None while the station has never been cached
     db_min, db_max = cache_stats
@@ -130,49 +161,93 @@ def get_meteo_data(
         # before the requested start and end at or after the requested end, since
         # both range bounds are inclusive. Comparing whole dates instead would
         # wrongly accept a day that is only partially cached.
-        if db_min <= _to_grid(dt_ini) and db_max >= _to_grid(dt_fin):
+        covers_window = db_min <= _to_grid(dt_ini) and db_max >= _to_grid(dt_fin)
+
+        # Freshness test: the station's last successful refresh must be recent.
+        # A station with covered rows but no state row predates this table and is
+        # treated as stale, so the first request after upgrading repopulates it.
+        state = db.query(StationCacheState).filter(
+            StationCacheState.station_id == station_key
+        ).first()
+
+        fresh_until = _utcnow() - timedelta(minutes=CACHE_TTL_MINUTES)
+        is_fresh = state is not None and state.last_fetched_at > fresh_until
+
+        if covers_window and is_fresh:
             is_cache_hit = True
+            logger.info(
+                f"CACHE HIT: '{station_key}' covers {dt_ini}..{dt_fin} and was refreshed at "
+                f"{state.last_fetched_at} (TTL {CACHE_TTL_MINUTES} min)."
+            )
+        else:
+            reason = "coverage incomplete" if not covers_window else "cache expired"
+            logger.info(f"CACHE MISS for '{station_key}': {reason}. Fetching from AEMET API...")
+    else:
+        logger.info(f"CACHE MISS for '{station_key}': nothing cached. Fetching from AEMET API...")
 
     raw_data = []
 
     # --- CACHE HIT ---
     if is_cache_hit:
-        logger.info("CACHE HIT: Full date range found in SQLite.")
         cached_records = db.query(MeteoRecord).filter(
-            MeteoRecord.station_id == identificacion,
+            MeteoRecord.station_id == station_key,
             MeteoRecord.timestamp >= dt_ini,
             MeteoRecord.timestamp <= dt_fin
         ).all()
         # Rows are mapped back to the AEMET field names so the cache path and the
-        # source path feed the exact same shape into the data processor.
+        # source path feed the exact same shape into the data processor. `nombre`
+        # is only replayed when a label was actually stored, because the source
+        # path produces no `Station` column at all when the payload carries no
+        # label. Emitting one here would make a cache hit differ from a cache
+        # miss for the same request.
         for record in cached_records:
-            raw_data.append({
-                "nombre": record.station_id,
+            restored = {
                 "fhora": record.timestamp.strftime("%Y-%m-%dT%H:%M:%SUTC"),
                 "temp": record.temperature,
                 "pres": record.pressure,
                 "vel": record.speed
-            })
+            }
+            if record.station_name:
+                restored["nombre"] = record.station_name
+            raw_data.append(restored)
             
     # --- CACHE MISS ---
     else:
-        logger.info("CACHE MISS OR PARTIAL DATA: Fetching from AEMET API...")
         # AEMET expects the UTC suffix to be part of the path parameter
         aemet_ini = dt_ini.strftime("%Y-%m-%dT%H:%M:%SUTC")
         aemet_fin = dt_fin.strftime("%Y-%m-%dT%H:%M:%SUTC")
-        
-        raw_data = fetch_aemet_data(aemet_ini, aemet_fin, identificacion)
-        
-        # TODO: `fetch_aemet_data` maps every AEMET outcome to `[]`, so an upstream
-        # outage and a legitimately empty range are indistinguishable here. Have
-        # the client return a status (or raise a custom exception) and answer 502
-        # for the former, 200 with an empty dataset for the latter.
+
+        # An unreachable or erroring upstream is a gateway failure, not an empty
+        # station. Answering 502 keeps a source-API outage distinguishable from a
+        # window that genuinely holds no observations, so callers do not read an
+        # outage as "the station published nothing" and silently keep the cache.
+        try:
+            raw_data = fetch_aemet_data(aemet_ini, aemet_fin, station_key)
+        except UpstreamAEMETError as error:
+            logger.error(f"AEMET upstream failure for {station_key}: {error}")
+            raise HTTPException(
+                status_code=502,
+                detail=f"Upstream AEMET API unavailable: {error}",
+            )
+
         if not raw_data:
-            logger.warning(f"AEMET returned no data for {identificacion} (could be empty range or upstream failure). Serving empty dataset.")
+            # A valid but empty answer: keep whatever the cache already holds for
+            # this window instead of treating it as an invalidation. The freshness
+            # stamp is deliberately left untouched, because nothing new arrived.
+            logger.warning(
+                f"AEMET returned no observations for {station_key} "
+                f"between {aemet_ini} and {aemet_fin}. Serving an empty dataset."
+            )
         else:
             logger.info("Saving new AEMET data to SQLite cache...")
             db_records_to_insert = []
-            
+            # AEMET labels every sample of a station the same way, so the first
+            # non-empty label is stored once and reused on every cache hit.
+            station_label = next(
+                (item.get("nombre") for item in raw_data if item.get("nombre")),
+                None,
+            )
+
             for item in raw_data:
                 # Skip malformed rows rather than aborting the whole ingestion
                 item_dt_str = item.get("fhora", "").replace("UTC", "").replace("Z", "")
@@ -182,33 +257,50 @@ def get_meteo_data(
                     continue 
                 
                 new_record = MeteoRecord(
-                    station_id=identificacion,
+                    station_id=station_key,
+                    station_name=station_label,
                     timestamp=item_dt,
                     temperature=item.get("temp"),
                     pressure=item.get("pres"),
                     speed=item.get("vel")
                 )
                 db_records_to_insert.append(new_record)
-            
+
             # Replace whatever we hold for this window instead of appending, so a
             # refresh cannot duplicate rows. The delete and the insert share a
             # single transaction, so the swap stays atomic, and both only run once
             # the payload has been parsed: a truncated or failed upstream response
             # must never wipe data we already had.
             #
-            # TODO: it is still keyed on the station string, so one physical station
-            # is stored twice under its name and under its AEMET code. Canonicalise
-            # the station id and add a UniqueConstraint on (station_id, timestamp).
+            # The unique constraint on (station_id, timestamp) backs this up at the
+            # schema level, so even two concurrent refreshes of the same window
+            # cannot both insert the same sample.
             if db_records_to_insert:
                 db.query(MeteoRecord).filter(
-                    MeteoRecord.station_id == identificacion,
+                    MeteoRecord.station_id == station_key,
                     MeteoRecord.timestamp >= dt_ini,
                     MeteoRecord.timestamp <= dt_fin
                 ).delete()
-                
+
                 db.add_all(db_records_to_insert)
+
+                # Only a successful ingestion marks the station fresh. Recording it
+                # here, inside the same transaction as the rows, means the stamp can
+                # never claim freshness for data that was not actually stored.
+                state = db.query(StationCacheState).filter(
+                    StationCacheState.station_id == station_key
+                ).first()
+                fetched_at = _utcnow()
+                if state:
+                    state.last_fetched_at = fetched_at
+                else:
+                    db.add(StationCacheState(station_id=station_key, last_fetched_at=fetched_at))
+
                 db.commit()
-                logger.info(f"Successfully cached {len(db_records_to_insert)} records to DB.")
+                logger.info(
+                    f"Successfully cached {len(db_records_to_insert)} records for '{station_key}' "
+                    f"and marked it fresh at {fetched_at}."
+                )
     # --- TRANSFORMATION & RESPONSE ---
     # Column renaming, the Europe/Madrid conversion, the time aggregation and
     # the data_types filter all live in the service layer, keeping this endpoint
@@ -222,6 +314,7 @@ def get_meteo_data(
     return {
         "status": "success",
         "station_requested": identificacion,
+        "station_resolved": station_key,
         "location_requested": location,
         "location_resolved": "Europe/Madrid",
         "data_types_filtered": data_types if data_types else "All",

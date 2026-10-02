@@ -12,6 +12,9 @@ from datetime import datetime
 import pytest
 
 STATION = "Meteo Station Gabriel de Castilla"
+# Rows are keyed by the canonical AEMET code, not by the spelling the caller used
+STATION_CODE = "89064"
+OTHER_STATION_CODE = "89070"
 
 
 def call(client, start, end, station=STATION, **params):
@@ -28,7 +31,7 @@ def test_first_request_misses_the_cache_and_persists_the_rows(mock_aemet, client
     assert response.status_code == 200
     assert len(mock_aemet.calls) == 1
     assert len(response.json()["data"]) == 19  # 3 hours on a 10-minute grid
-    assert len(cache.rows(STATION)) == 19
+    assert len(cache.rows(STATION_CODE)) == 19
 
 
 def test_repeated_request_is_served_without_calling_aemet(mock_aemet, client):
@@ -73,7 +76,7 @@ def test_wider_range_refetches_the_days_that_are_missing(mock_aemet, client, cac
 
     assert len(mock_aemet.calls) == 2  # the extra day had to be fetched
     assert len(wider.json()["data"]) == 163  # 27 hours on a 10-minute grid, inclusive
-    assert len(cache.rows(STATION)) == 163
+    assert len(cache.rows(STATION_CODE)) == 163
 
 
 def test_partially_cached_day_is_not_a_cache_hit(mock_aemet, client, cache):
@@ -107,10 +110,10 @@ def test_grid_aligned_end_of_day_is_served_from_cache(mock_aemet, client):
 def test_refresh_replaces_rows_instead_of_duplicating_them(mock_aemet, client, cache):
     """Re-reading a range must swap its rows, never append a second copy."""
     call(client, "2024-01-01T00:00:00", "2024-01-01T03:00:00")
-    first = len(cache.rows(STATION))
+    first = len(cache.rows(STATION_CODE))
 
     call(client, "2024-01-01T00:00:00", "2024-01-01T03:00:00")
-    second = len(cache.rows(STATION))
+    second = len(cache.rows(STATION_CODE))
 
     assert first == 19
     assert second == first
@@ -122,7 +125,7 @@ def test_empty_upstream_response_keeps_the_cache_intact(mock_aemet, client, cach
     upstream payload was empty, so a transient outage erased cached data.
     """
     call(client, "2024-02-01T00:00:00", "2024-02-01T23:00:00")
-    assert len(cache.rows(STATION)) == 139
+    assert len(cache.rows(STATION_CODE)) == 139
 
     monkey = pytest.MonkeyPatch()
     monkey.setattr("api.routes.fetch_aemet_data", lambda *_: [])
@@ -134,7 +137,7 @@ def test_empty_upstream_response_keeps_the_cache_intact(mock_aemet, client, cach
 
     assert response.status_code == 200
     assert response.json()["data"] == []
-    assert len(cache.rows(STATION)) == 139  # untouched
+    assert len(cache.rows(STATION_CODE)) == 139  # untouched
 
 
 def test_cache_is_scoped_per_station(mock_aemet, client, cache):
@@ -143,8 +146,8 @@ def test_cache_is_scoped_per_station(mock_aemet, client, cache):
     call(client, "2024-01-01T00:00:00", "2024-01-01T01:00:00", station="Meteo Station Juan Carlos I")
 
     assert len(mock_aemet.calls) == 2
-    assert len(cache.rows(STATION)) == 7
-    assert len(cache.rows("Meteo Station Juan Carlos I")) == 7
+    assert len(cache.rows(STATION_CODE)) == 7
+    assert len(cache.rows(OTHER_STATION_CODE)) == 7
 
 
 def test_cache_hit_and_miss_are_logged(mock_aemet, client, caplog):

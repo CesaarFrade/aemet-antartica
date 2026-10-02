@@ -15,7 +15,8 @@ from sqlalchemy.pool import StaticPool
 
 from api.routes import get_db
 from main import app
-from models.database import Base, MeteoRecord
+from models.database import Base, MeteoRecord, StationCacheState
+from core.stations import canonical_station_id
 
 # Shape of the endpoint under test, as required by the challenge
 ENDPOINT = "/api/antartida/datos/fechaini/{start}/fechafin/{end}/estacion/{station}"
@@ -47,6 +48,7 @@ def clean_cache(engine):
     """Empties the cache before every test so cases stay independent."""
     with sessionmaker(bind=engine)() as session:
         session.query(MeteoRecord).delete()
+        session.query(StationCacheState).delete()
         session.commit()
     yield
 
@@ -121,15 +123,37 @@ def cache(engine):
     def rows(station):
         with sessionmaker(bind=engine)() as session:
             return session.query(MeteoRecord).filter(
-                MeteoRecord.station_id == station
+                MeteoRecord.station_id == canonical_station_id(station)
             ).order_by(MeteoRecord.timestamp).all()
 
     def seed(station, timestamps, temperature=1.0):
         with sessionmaker(bind=engine)() as session:
             session.add_all([
-                MeteoRecord(station_id=station, timestamp=ts, temperature=temperature)
+                MeteoRecord(station_id=canonical_station_id(station), timestamp=ts, temperature=temperature)
                 for ts in timestamps
             ])
             session.commit()
 
-    return type("Cache", (), {"rows": staticmethod(rows), "seed": staticmethod(seed)})()
+    def freshness(station):
+        """Returns the station's `last_fetched_at`, or None when never refreshed."""
+        with sessionmaker(bind=engine)() as session:
+            state = session.query(StationCacheState).filter(
+                StationCacheState.station_id == canonical_station_id(station)
+            ).first()
+            return state.last_fetched_at if state else None
+
+    def backdate(station, minutes):
+        """Ages a station's freshness stamp to simulate an expired cache entry."""
+        with sessionmaker(bind=engine)() as session:
+            state = session.query(StationCacheState).filter(
+                StationCacheState.station_id == canonical_station_id(station)
+            ).first()
+            state.last_fetched_at -= timedelta(minutes=minutes)
+            session.commit()
+
+    return type("Cache", (), {
+        "rows": staticmethod(rows),
+        "seed": staticmethod(seed),
+        "freshness": staticmethod(freshness),
+        "backdate": staticmethod(backdate),
+    })()
