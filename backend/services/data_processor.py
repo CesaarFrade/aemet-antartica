@@ -28,7 +28,7 @@ def process_weather_data(raw_data: list, data_types: Optional[List[str]], aggreg
     # 2. Rename columns to match the output dataset field names
     df = df.rename(columns=COLUMN_MAPPING)
 
-   # --- TIMEZONE CONVERSION (¡Este es el bloque que faltaba!) ---
+   # --- TIMEZONE CONVERSION ---
     if "Datetime" in df.columns:
         # Convert text to a UTC-aware datetime object
         df["Datetime"] = pd.to_datetime(df["Datetime"], utc=True)
@@ -77,5 +77,5 @@ def process_weather_data(raw_data: list, data_types: Optional[List[str]], aggreg
         # Filter the DataFrame to only include the requested columns
         df = df[requested_cols]
 
-    # Return as a list of dictionaries for the FastAPI response
-    return df.to_dict(orient="records")
+    # Convert DataFrame back to list of dictionaries, replacing NaN with None for valid JSON
+    return df.replace({float('nan'): None}).to_dict(orient="records")

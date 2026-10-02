@@ -1,9 +1,39 @@
+import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 from unittest.mock import patch
+from sqlalchemy.pool import StaticPool
 from main import app
+from api.routes import get_db
+from models.database import Base
 
-# Creamos un cliente de pruebas que simula ser un navegador/usuario
+# --- TEST DATABASE SETUP ---
+# Use an in-memory SQLite database exclusively for tests to prevent modifying the real DB (Fixes A3)
+SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
+engine = create_engine(
+    SQLALCHEMY_DATABASE_URL, 
+    connect_args={"check_same_thread": False},
+    poolclass=StaticPool
+)
+TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+# Create tables in the in-memory database
+Base.metadata.create_all(bind=engine)
+
+def override_get_db():
+    try:
+        db = TestingSessionLocal()
+        yield db
+    finally:
+        db.close()
+
+# Inject the fake database session into the real FastAPI app
+app.dependency_overrides[get_db] = override_get_db
+
+# Create a test client that simulates a browser/user
 client = TestClient(app)
+# ---------------------------
 
 def test_invalid_date_format_returns_400():
     """
@@ -25,8 +55,8 @@ def test_time_travel_dates_returns_400():
     assert response.status_code == 400
     assert "Invalid date range" in response.json()["detail"]
 
-    # Patch decorator replaces the actual fetch_aemet_data function with a Mock object
-@patch("main.fetch_aemet_data")
+# Patch decorator replaces the actual fetch_aemet_data function used in api.routes (Fixes A1)
+@patch("api.routes.fetch_aemet_data")
 def test_valid_request_processes_data_correctly(mock_fetch):
     """
     Tests the 'Happy Path' of the API's business logic using mock data.
