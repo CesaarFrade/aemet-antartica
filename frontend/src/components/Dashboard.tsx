@@ -1,6 +1,6 @@
-import { useState, useMemo } from 'react';
-import { fetchMeteoData } from '../services/apiService';
-import type { ApiResponse, MeteoData } from '../types/api';
+import { useState, useMemo, useEffect } from 'react';
+import { fetchMeteoData, fetchStations, type StationInfo } from '../services/apiService';
+import type { ApiResponse } from '../types/api';
 import WeatherChart from './WeatherChart';
 
 const AVAILABLE_VARS = [
@@ -12,13 +12,42 @@ const AVAILABLE_VARS = [
 export default function Dashboard() {
   const [fechaIni, setFechaIni] = useState('2024-01-01T00:00:00');
   const [fechaFin, setFechaFin] = useState('2024-01-05T23:59:59');
-  const [estacion, setEstacion] = useState('89064');
+  const [estacion, setEstacion] = useState('');
   const [aggregation, setAggregation] = useState('Daily');
   const [selectedVars, setSelectedVars] = useState<string[]>([]);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [apiResponse, setApiResponse] = useState<ApiResponse | null>(null);
+
+  const [stations, setStations] = useState<StationInfo[]>([]);
+  const [stationsError, setStationsError] = useState<string | null>(null);
+
+  // The station picker is populated from the API instead of hardcoded, so the UI can
+  // never offer an identifier the service does not know about. The first station is
+  // pre-selected once the list arrives, matching the pre-filled date defaults.
+  useEffect(() => {
+    let active = true;
+
+    fetchStations()
+      .then((data) => {
+        if (!active) return;
+        setStations(data);
+        setEstacion((current) => current || data[0]?.id || '');
+      })
+      .catch((err: unknown) => {
+        if (!active) return;
+        setStationsError(
+          err instanceof Error
+            ? err.message
+            : 'Could not reach the backend on port 8000.'
+        );
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
   
   const [viewMode, setViewMode] = useState<'chart' | 'table'>('chart');
 
@@ -37,8 +66,8 @@ export default function Dashboard() {
     try {
       const response = await fetchMeteoData(fechaIni, fechaFin, estacion, aggregation, selectedVars);
       setApiResponse(response);
-    } catch (err: any) {
-      setError(err.message || 'Unknown error connecting to the server');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Unknown error connecting to the server');
     } finally {
       setLoading(false);
     }
@@ -76,11 +105,26 @@ export default function Dashboard() {
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
               <div className="flex flex-col space-y-1">
-                <label className="text-sm font-medium text-slate-600">Station (Code/Name)</label>
-                <input 
-                  type="text" value={estacion} onChange={(e) => setEstacion(e.target.value)}
-                  className="px-3 py-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500" required
-                />
+                <label className="text-sm font-medium text-slate-600">Station</label>
+                <select
+                  value={estacion}
+                  onChange={(e) => setEstacion(e.target.value)}
+                  className="px-3 py-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 bg-white disabled:bg-slate-100 disabled:text-slate-400"
+                  disabled={stations.length === 0}
+                  required
+                >
+                  {stations.length === 0 ? (
+                    <option value="">
+                      {stationsError ? 'Stations unavailable' : 'Loading stations...'}
+                    </option>
+                  ) : (
+                    stations.map((st) => (
+                      <option key={st.id} value={st.id}>
+                        {st.name} ({st.id})
+                      </option>
+                    ))
+                  )}
+                </select>
               </div>
               <div className="flex flex-col space-y-1">
                 <label className="text-sm font-medium text-slate-600">Start Date</label>
@@ -139,6 +183,15 @@ export default function Dashboard() {
             </div>
           </form>
         </div>
+
+        {stationsError && (
+          <div className="bg-amber-50 border-l-4 border-amber-500 p-4 rounded-md">
+            <p className="text-amber-700 font-medium">Could not load the station list</p>
+            <p className="text-amber-700 text-sm">
+              {stationsError}. Is the FastAPI backend running on http://localhost:8000?
+            </p>
+          </div>
+        )}
 
         {error && (
           <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-md">

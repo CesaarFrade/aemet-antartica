@@ -27,3 +27,23 @@ export const fetchMeteoData = async (
 
   return response.json();
 };
+
+export interface StationInfo {
+  id: string;
+  name: string;
+}
+
+export const fetchStations = async (): Promise<StationInfo[]> => {
+  const url = `${API_BASE_URL}/api/antartida/estaciones`;
+
+  const response = await fetch(url);
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => null);
+    const errorMessage = errorData?.detail || `HTTP Error: ${response.status}`;
+    throw new Error(errorMessage);
+  }
+
+  const json = await response.json();
+  return json.data;
+};

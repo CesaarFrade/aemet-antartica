@@ -11,7 +11,7 @@ from models.database import SessionLocal, MeteoRecord, StationCacheState
 from core.config import CACHE_TTL_MINUTES
 from core.exceptions import UpstreamAEMETError
 from core.logger import get_logger
-from core.stations import canonical_station_id
+from core.stations import canonical_station_id, get_all_stations
 
 logger = get_logger("routes")
 router = APIRouter()
@@ -53,6 +53,24 @@ def get_db():
         yield db
     finally:
         db.close()
+
+@router.get("/api/antartida/estaciones")
+def list_stations():
+    """
+    Lists the Antarctic stations the service knows about.
+
+    Supporting endpoint for the dashboard, so a client can populate a station picker
+    instead of hardcoding identifiers. It reads the curated registry only and never
+    touches the cache or AEMET, so it stays available even when the upstream is down.
+
+    Returns:
+        `{"status": "success", "data": [{"id": ..., "name": ...}, ...]}`.
+    """
+    return {
+        "status": "success",
+        "data": get_all_stations(),
+    }
+
 
 @router.get("/api/antartida/datos/fechaini/{fechaIniStr}/fechafin/{fechaFinStr}/estacion/{identificacion}")
 def get_meteo_data(
