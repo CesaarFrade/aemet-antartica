@@ -4,7 +4,7 @@ import time
 import requests
 from dotenv import load_dotenv
 
-from core.exceptions import UpstreamAEMETError
+from core.exceptions import ConfigurationError, UpstreamAEMETError
 from core.logger import get_logger
 from core.stations import station_code_for_aemet
 
@@ -62,7 +62,15 @@ def fetch_aemet_data(start_date: str, end_date: str, station_name: str):
     caller can tell an outage apart from a station that published no data.
     """
     if not AEMET_API_KEY:
-        raise ValueError("AEMET_API_KEY is not set in the .env file")
+        # A distinct exception type, not a bare ValueError: the caller maps this
+        # to 503 so the failure reads as "this deployment is misconfigured" rather
+        # than "the source API is down", which would send the caller to the wrong
+        # party. It also means the missing key no longer surfaces as an opaque 500.
+        raise ConfigurationError(
+            "AEMET_API_KEY is not set. Add it to the .env file at the repository "
+            "root; a personal e-mail account can register at "
+            "https://opendata.aemet.es/centrodedescargas/inicio."
+        )
 
     # If the user passes the full name, we convert it to the ID. If not, we use the input directly.
     station_id = station_code_for_aemet(station_name)

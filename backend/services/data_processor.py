@@ -18,7 +18,7 @@ def process_weather_data(raw_data: list, data_types: Optional[List[str]], aggreg
     if not raw_data:
         return []
 
-    # Safeguard against unexpected dict responses (B2)
+    # Safeguard against unexpected dict responses
     if isinstance(raw_data, dict):
         if raw_data.get("estado") or raw_data.get("error"):
             return []
@@ -60,8 +60,11 @@ def process_weather_data(raw_data: list, data_types: Optional[List[str]], aggreg
         elif aggregation == "Monthly":
             df = df.resample("ME").agg(agg_rules)
             
-        # Drop empty time bins created by resampling and reset index
-        df = df.dropna(subset=[col for col in df.columns if col not in ["Station", "Datetime"]])
+        # FIX B3: Drop empty time bins ONLY if ALL metrics are NaN (how='all')
+        subset_cols = [col for col in df.columns if col not in ["Station", "Datetime"]]
+        if subset_cols:
+            df = df.dropna(subset=subset_cols, how='all')
+        
         df = df.reset_index()
 
     # Format Datetime back to string with offset AFTER aggregation
@@ -70,8 +73,8 @@ def process_weather_data(raw_data: list, data_types: Optional[List[str]], aggreg
 
     # 3. Filter by specific data types if the user selected any
     if data_types:
-        # Station and Datetime are always included as base columns
-        requested_cols = ["Station", "Datetime"]
+        # FIX B2: Ensure we only request base columns if they actually exist in the DataFrame
+        requested_cols = [col for col in ["Station", "Datetime"] if col in df.columns]
         
         if "temperature" in data_types and "Temperature (ºC)" in df.columns:
             requested_cols.append("Temperature (ºC)")

@@ -16,3 +16,14 @@ class UpstreamAEMETError(Exception):
     def __init__(self, message: str, attempts: int = 1):
         super().__init__(message)
         self.attempts = attempts
+
+
+class ConfigurationError(Exception):
+    """
+    Raised when the service is missing configuration it cannot invent.
+
+    This is deliberately not an `UpstreamAEMETError`: the source API is perfectly
+    healthy, this deployment just cannot authenticate against it. Reporting it as
+    `502` would send operators looking at AEMET when the fault is local, so the
+    endpoint maps it to `503 Service Unavailable` instead.
+    """

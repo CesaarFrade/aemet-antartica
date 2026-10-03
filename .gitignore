@@ -6,3 +6,10 @@ __pycache__/
 *.db
 venv/
 DevelopmentChallenge_-_PythonWebAPI_FULL (2).pdf
+# SQLite Database files
+*.db
+*.sqlite
+*.sqlite3
+*.db-shm
+*.db-wal
+.pytest_cache

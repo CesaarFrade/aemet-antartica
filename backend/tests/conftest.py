@@ -5,6 +5,7 @@ Every test runs against an in-memory SQLite database injected through FastAPI's
 dependency overrides, so the suite never reads or writes the real `meteo_cache.db`.
 """
 
+import requests
 from datetime import datetime, timedelta
 
 import pytest
@@ -15,7 +16,7 @@ from sqlalchemy.pool import StaticPool
 
 from api.routes import get_db
 from main import app
-from models.database import Base, MeteoRecord, StationCacheState
+from models.database import Base, MeteoRecord, StationCacheState, StationCoverage
 from core.stations import canonical_station_id
 
 # Shape of the endpoint under test, as required by the challenge
@@ -23,6 +24,30 @@ ENDPOINT = "/api/antartida/datos/fechaini/{start}/fechafin/{end}/estacion/{stati
 
 # AEMET publishes on a 10-minute grid; mirrors routes._to_grid
 GRID_MINUTES = 10
+
+
+@pytest.fixture(autouse=True)
+def no_outbound_http(monkeypatch):
+    """
+    Fails any test that would reach the real AEMET service.
+
+    A working API key sits in the developer's `.env`, so a test that forgets to stub
+    `fetch_aemet_data` does not fail loudly: it quietly succeeds against the live
+    service, which makes the suite slow, flaky and dependent on the weather. That
+    is exactly what happened while these regressions were being written.
+
+    The block sits on the `requests` transport rather than on `socket.connect`,
+    because Starlette's `TestClient` needs sockets for its own portal machinery.
+    Tests that stub `requests.get` or `fetch_aemet_data` bypass this entirely.
+    """
+
+    def blocked(self, request, **kwargs):
+        raise AssertionError(
+            f"A test tried to reach the network ({request}). Stub "
+            "`api.routes.fetch_aemet_data` (the `mock_aemet` fixture) instead."
+        )
+
+    monkeypatch.setattr(requests.Session, "send", blocked)
 
 
 @pytest.fixture(scope="session")
@@ -49,6 +74,7 @@ def clean_cache(engine):
     with sessionmaker(bind=engine)() as session:
         session.query(MeteoRecord).delete()
         session.query(StationCacheState).delete()
+        session.query(StationCoverage).delete()
         session.commit()
     yield
 
@@ -151,9 +177,21 @@ def cache(engine):
             state.last_fetched_at -= timedelta(minutes=minutes)
             session.commit()
 
+    def spans(station):
+        """The station's verified coverage windows, as (start, end) pairs."""
+        with sessionmaker(bind=engine)() as session:
+            return [
+                (row.start_ts, row.end_ts)
+                for row in session.query(StationCoverage)
+                .filter(StationCoverage.station_id == canonical_station_id(station))
+                .order_by(StationCoverage.start_ts)
+                .all()
+            ]
+
     return type("Cache", (), {
         "rows": staticmethod(rows),
         "seed": staticmethod(seed),
         "freshness": staticmethod(freshness),
         "backdate": staticmethod(backdate),
+        "spans": staticmethod(spans),
     })()
