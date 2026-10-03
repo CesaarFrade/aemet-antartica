@@ -1,7 +1,58 @@
 # Antarctica Wind Farm - AEMET API Service
 
-## 1. Executive Summary
-This project provides a full-stack web service to retrieve, aggregate, and visualize historical weather data from the AEMET API for meteorological stations in Antarctica. Developed to support the Analytical team's feasibility study for a future Wind Farm, the solution features a backend cache (SQLite) to manage high-volume trader requests without overloading the source API, alongside a frontend interface for data visualization.
+## 1. Overview
+This project provides a full-stack web platform to retrieve, aggregate, and visualize historical weather data from the AEMET API for meteorological stations in Antarctica. Developed to support the Analytical team's feasibility study for a future Wind Farm, the solution features a backend cache to manage high-volume analytical requests without overloading the source API, alongside a modern frontend interface for dynamic data visualization.
+
+## 2. Architecture
+The platform follows a clean, decoupled client-server architecture to ensure high maintainability, separation of concerns, and readiness for future scalability.
+
+```text
+                   ┌─────────────────┐
+                   │   React SPA     │
+                   │   Port 5173     │
+                   └────────┬────────┘
+                            │ HTTP
+                            ▼
+                   ┌─────────────────┐
+                   │    FastAPI      │
+                   │   Port 8000     │
+                   └──────┬─────┬────┘
+                          │     │
+                    ┌─────┘     └──────┐
+                    ▼                  ▼
+              ┌──────────┐      ┌──────────┐
+              │  SQLite  │      │  AEMET   │
+              │  Cache   │      │   API    │
+              └──────────┘      └──────────┘
+```
+
+# 4. Technologies
+Backend
+
+Core: Python, FastAPI, Uvicorn
+
+Data Processing: Pandas
+
+Database: SQLite, SQLAlchemy ORM
+
+Testing: Pytest
+
+Frontend
+
+Core: React 18, TypeScript, Vite
+
+Styling: Tailwind CSS
+
+Visualization: Recharts
+
+# 3. Requirements
+Python 3.11+
+
+Node.js 18+ (required to run the frontend SPA).
+
+AEMET OpenData API Key: A personal email account is recommended to obtain the key, as corporate emails might be blocked by the agency.
+
+Note: The tzdata package is strictly pinned in requirements.txt to ensure Europe/Madrid conversions and DST boundaries resolve identically across Windows, macOS, and Linux.
 
 ## 2. Key Features (Core API)
 - **Clean Architecture & Modular Design:** The codebase is structured into logical, decoupled layers (`api/`, `core/`, `models/`, `services/`). This separation of concerns ensures high maintainability, readability, and readiness for future scalability.

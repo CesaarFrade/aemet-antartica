@@ -111,6 +111,15 @@ def get_meteo_data(
             502 when the AEMET upstream fails; an upstream outage is never
             reported as an empty station.
     """
+    # --- DATA TYPES VALIDATION ---
+    if data_types:
+        allowed = {"temperature", "pressure", "speed"}
+        invalid = [dt for dt in data_types if dt not in allowed]
+        if invalid:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Invalid data_types: {invalid}. Allowed values are: {allowed}"
+            )
     # --- DATE VALIDATION ---
     # AEMET timestamps are UTC wall-clock strings, so the range is handled as naive
     # UTC throughout this layer and the CET/CEST conversion happens later, in the

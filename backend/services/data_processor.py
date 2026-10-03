@@ -18,6 +18,12 @@ def process_weather_data(raw_data: list, data_types: Optional[List[str]], aggreg
     if not raw_data:
         return []
 
+    # Safeguard against unexpected dict responses (B2)
+    if isinstance(raw_data, dict):
+        if raw_data.get("estado") or raw_data.get("error"):
+            return []
+        raw_data = [raw_data]
+
     # Convert the raw list of dictionaries into a Pandas DataFrame
     df = pd.DataFrame(raw_data)
 
