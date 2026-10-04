@@ -42,8 +42,8 @@ It combines:
 - a **SQLite** cache that keeps the source API from being queried once per request;
 - a **React + TypeScript** single-page dashboard for exploring the series;
 - **Pandas** for filtering, resampling and timezone conversion;
-- a **117-test** suite covering the caching, timezone, validation and resilience
-  constraints of the brief.
+- a **117-test** backend suite covering the caching, timezone, validation and
+  resilience constraints of the brief, plus **5 frontend** component tests;
 
 Requests are served from the cache whenever the requested window is already covered
 and still fresh, which bounds the upstream cost to roughly one AEMET call per station
@@ -146,7 +146,7 @@ boundaries behave identically on Windows, macOS and Linux.
 
 | Technology    | Purpose                       |
 | ------------- | ----------------------------- |
-| React 18      | UI framework                  |
+| React 19.2.8  | UI framework                  |
 | TypeScript    | Type-safe development         |
 | Vite          | Build tooling and dev server  |
 | Tailwind CSS  | Styling                       |
@@ -213,7 +213,8 @@ boundaries behave identically on Windows, macOS and Linux.
     ├── tailwind.config.js        # Tailwind + lucide-react icon paths.
     ├── postcss.config.js
     ├── eslint.config.js
-    ├── tsconfig.json             # References tsconfig.app.json / tsconfig.node.json.
+    ├── tsconfig.json             # References app / node / test projects.
+    ├── tsconfig.test.json        # Type checks the Vitest specs.
     │
     ├── public/                   # favicon.svg, icons.svg.
     │
@@ -226,6 +227,8 @@ boundaries behave identically on Windows, macOS and Linux.
         │   └── WeatherChart.tsx  # Recharts series + raw data table.
         ├── services/
         │   └── apiService.ts     # HTTP client for the backend.
+        ├── test/
+        │   └── setup.ts          # Registers the jest-dom matchers on Vitest.
         └── types/
             └── api.ts            # Response typings.
 ```
@@ -612,12 +615,33 @@ fixed, so none of them can come back silently.
 
 ### Frontend
 
-The frontend includes isolated component tests using Vitest and React Testing Library to ensure correct rendering, loading states, and error handling without reaching the real network.
+Five component tests (`frontend/src/components/Dashboard.test.tsx`) run on Vitest
+and React Testing Library, covering the contract between the dashboard and the API:
+
+- the main view renders;
+- the station picker shows a loading placeholder, then the stations returned by
+  `GET /api/antartida/estaciones`, with the first one pre-selected;
+- a successful query renders the derived KPI cards and forwards the current filters
+  to the service;
+- an upstream failure is surfaced as an error, not as an empty result, and the form
+  recovers.
+
+The API client and the Recharts wrapper are both mocked, so the suite never reaches
+the network. Recharts renders through a responsive container that needs a real
+layout engine, and stubbing it keeps the assertions on the dashboard's own
+behaviour.
 
 ```bash
 cd frontend
-npm run test
+npm run test    # 5 tests
+npm run lint    # ESLint
+npm run build   # tsc -b (app, node and test projects) + Vite production build
 ```
+
+Type checking covers the test files as well: `tsconfig.test.json` is a third project
+referenced from `tsconfig.json`, so `tsc -b` fails on a type error inside a test
+instead of letting it through. Test files are excluded from `tsconfig.app.json` so
+they never enter the production bundle.
 
 ---
 
@@ -640,7 +664,7 @@ until someone trusts the data.
 
 ## 15. Frontend
 
-A React 18 + TypeScript single-page app built with Vite and Tailwind CSS.
+A React 19.2.8 + TypeScript single-page app built with Vite and Tailwind CSS.
 
 - The station selector is populated from `GET /api/antartida/estaciones`, so no
   identifier is hardcoded and an invalid selection is not possible.
@@ -652,9 +676,6 @@ A React 18 + TypeScript single-page app built with Vite and Tailwind CSS.
 
 ### Known frontend issues
 
-- `src/services/apiService.ts` hardcodes `http://localhost:8000` instead of reading
-  a `VITE_API_URL` environment variable, so a deployed build cannot be repointed
-  without editing source.
 - Requests are not cancelled. Rapidly changing filters can let a slower earlier
   response overwrite a newer one.
 - The table renders every row without virtualisation, and computes its extremes with
@@ -663,6 +684,11 @@ A React 18 + TypeScript single-page app built with Vite and Tailwind CSS.
   (roughly 2.4 years), at which point it throws instead of degrading.
 - `Station` is declared as required in `src/types/api.ts`, but the backend omits
   the column when the upstream payload carries no label.
+- The `location` parameter of the brief is **backend-only**: the dashboard has no
+  timezone control and never sends it, so every query is interpreted as UTC input.
+  The endpoint defaults to UTC, which is the zone AEMET publishes on, so the
+  results are correct as shown — but a user cannot submit local wall-clock times.
+  This is the one brief parameter with no UI control; see the TODO below.
 
 ---
 
@@ -773,4 +799,6 @@ per-station coverage queries and the index slower.
 - [ ] Add `AbortController` to cancel stale requests when filters change quickly.
 - [ ] Paginate or virtualise the raw data table.
 - [ ] Make `Station` optional in `src/types/api.ts`, matching the backend.
-- [ ] Remove the Vite boilerplate: `src/assets/`, `src/App.css`, `frontend/README.md`.
+- [ ] Add a `location` / timezone control to the dashboard: the endpoint accepts an
+  IANA zone or a fixed offset, but the UI can only submit UTC input.
+- [ ] Remove the Vite boilerplate: `src/assets/`, `src/App.css`.

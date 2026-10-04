@@ -105,8 +105,9 @@ export default function Dashboard() {
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
               <div className="flex flex-col space-y-1">
-                <label className="text-sm font-medium text-slate-600">Station</label>
+                <label htmlFor="station-select" className="text-sm font-medium text-slate-600">Station</label>
                 <select
+                  id="station-select"
                   value={estacion}
                   onChange={(e) => setEstacion(e.target.value)}
                   className="px-3 py-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 bg-white disabled:bg-slate-100 disabled:text-slate-400"
@@ -127,22 +128,25 @@ export default function Dashboard() {
                 </select>
               </div>
               <div className="flex flex-col space-y-1">
-                <label className="text-sm font-medium text-slate-600">Start Date</label>
+                <label htmlFor="fecha-ini" className="text-sm font-medium text-slate-600">Start Date</label>
                 <input 
+                  id="fecha-ini"
                   type="text" value={fechaIni} onChange={(e) => setFechaIni(e.target.value)}
                   className="px-3 py-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500" required
                 />
               </div>
               <div className="flex flex-col space-y-1">
-                <label className="text-sm font-medium text-slate-600">End Date</label>
+                <label htmlFor="fecha-fin" className="text-sm font-medium text-slate-600">End Date</label>
                 <input 
+                  id="fecha-fin"
                   type="text" value={fechaFin} onChange={(e) => setFechaFin(e.target.value)}
                   className="px-3 py-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500" required
                 />
               </div>
               <div className="flex flex-col space-y-1">
-                <label className="text-sm font-medium text-slate-600">Aggregation</label>
+                <label htmlFor="aggregation-select" className="text-sm font-medium text-slate-600">Aggregation</label>
                 <select 
+                  id="aggregation-select"
                   value={aggregation} onChange={(e) => setAggregation(e.target.value)}
                   className="px-3 py-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 bg-white"
                 >
