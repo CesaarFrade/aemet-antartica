@@ -153,6 +153,7 @@ boundaries behave identically on Windows, macOS and Linux.
 | Recharts      | Data visualisation            |
 | lucide-react  | Icon set                      |
 | ESLint        | Linting                       |
+| Vitest + Testing Library | Frontend component testing |
 
 > The API does not declare Pydantic response models: endpoints return plain
 > dictionaries and the OpenAPI contract documents the shape by hand. Pydantic is
@@ -586,6 +587,8 @@ later request on the default `FULL`, silently negating the pragma.
 
 ## 13. Testing
 
+### Backend
+
 ```bash
 pytest
 ```
@@ -606,6 +609,15 @@ Two properties are enforced by the suite rather than by convention:
 
 `backend/tests/test_regressions.py` holds a guard per regression that was found and
 fixed, so none of them can come back silently.
+
+### Frontend
+
+The frontend includes isolated component tests using Vitest and React Testing Library to ensure correct rendering, loading states, and error handling without reaching the real network.
+
+```bash
+cd frontend
+npm run test
+```
 
 ---
 
@@ -758,9 +770,7 @@ per-station coverage queries and the index slower.
 
 ### Frontend
 
-- [ ] Read the backend URL from `VITE_API_URL` instead of hardcoding `localhost:8000`.
 - [ ] Add `AbortController` to cancel stale requests when filters change quickly.
 - [ ] Paginate or virtualise the raw data table.
 - [ ] Make `Station` optional in `src/types/api.ts`, matching the backend.
-- [ ] Add Vitest and React Testing Library; there is currently no frontend test.
 - [ ] Remove the Vite boilerplate: `src/assets/`, `src/App.css`, `frontend/README.md`.
