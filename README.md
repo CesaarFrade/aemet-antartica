@@ -803,7 +803,6 @@ per-station coverage queries and the index slower.
 - [ ] Add retention/pruning for `meteo_records`.
 - [ ] Replace hardcoded mock data in the test suite with generated fixtures.
 - [ ] Introduce property-based testing for the timezone and aggregation logic.
-- [ ] Document the `station_coverage` table in the schema bootstrap docstring.
 
 ### Frontend
 

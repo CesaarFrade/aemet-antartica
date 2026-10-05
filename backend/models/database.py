@@ -202,6 +202,35 @@ def _prepare_schema(target_engine=None) -> None:
     The cache is disposable by design, so dropping it is always safe: it repopulates
     from AEMET on the next request.
 
+    `station_coverage` is the one table that needs a second look here, because its
+    rows describe rows of `meteo_records` instead of standing on their own. On a
+    fresh file there is nothing to do: `create_all` creates the table and it starts
+    empty. What must not survive a rebuild is coverage that outlives the rows it
+    describes. A span left behind would claim a window the table no longer holds any
+    data for, and every request inside that span would then be answered as a cache
+    hit, i.e. as an empty dataset for a window the station had in fact published.
+    That self-heals only when the station's freshness stamp in `station_cache_state`
+    finally expires, so the rebuild clears the table too.
+
+    Clearing is tied to `rebuilt` rather than run unconditionally, and that flag is
+    the whole point: coverage is the cache's memory of what it has already seen, it
+    is the most expensive thing in the file to rebuild, and nothing about the table
+    looks wrong from the outside. Wiping it on every startup would refetch the world
+    each time the process came up, which is precisely the upstream load Part 2 of
+    the brief asks to spare. Clearing only when `meteo_records` was genuinely
+    rebuilt keeps the healthy path free, and the two symmetric cases are pinned by
+    the schema-bootstrap regressions.
+
+    Known limitation, recorded here so the next schema change does not have to
+    rediscover it: `_is_current_schema` only inspects `meteo_records`. An outdated
+    `station_coverage` is therefore created when missing but never migrated, because
+    `CREATE TABLE IF NOT EXISTS` leaves an existing table alone. If the shape of that
+    table ever changes, a cache file written before the change keeps its old columns
+    and the failure surfaces on the next write as a missing-column error from
+    `_record_coverage`, not as a clear "unsupported schema" message. Widening the
+    check is the fix if that happens; until then deleting the file, or pointing
+    `AEMET_DB_PATH` at a fresh path, is enough, since the cache is disposable.
+
     Args:
         target_engine: Engine to prepare. Defaults to the application engine, and
             is injectable so the bootstrap can be exercised against a throwaway
