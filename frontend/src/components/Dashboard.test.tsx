@@ -1,5 +1,5 @@
 // frontend/src/components/Dashboard.test.tsx
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fetchStations, fetchMeteoData } from '../services/apiService';
 import type { MeteoData } from '../types/api';
@@ -8,8 +8,10 @@ import Dashboard from './Dashboard';
 // The API client is mocked so the suite never reaches the real backend, mirroring
 // the network guard the backend test suite installs. Every test picks its own
 // resolved value, which is what lets one file cover both the happy path and the
-// failure path.
-vi.mock('../services/apiService', () => ({
+// failure path. Only the two requests are replaced: `isAbortError` stays real,
+// because telling a cancellation apart from a failure is the behaviour under test.
+vi.mock('../services/apiService', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../services/apiService')>()),
   fetchStations: vi.fn(),
   fetchMeteoData: vi.fn(),
 }));
@@ -54,6 +56,15 @@ async function renderWithStations(stations = [GABRIEL, JUAN_CARLOS]) {
   vi.mocked(fetchStations).mockResolvedValue(stations);
   render(<Dashboard />);
   return screen.findByRole('option', { name: /Gabriel de Castilla/ });
+}
+
+/** A promise the test completes by hand, so two requests can resolve out of order. */
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
 }
 
 describe('Dashboard Component', () => {
@@ -109,7 +120,7 @@ describe('Dashboard Component', () => {
 
     // The filters are forwarded verbatim: pre-filled dates, the pre-selected station,
     // the default 'Daily' aggregation, no data type restriction and no location, which
-    // the backend reads as UTC.
+    // the backend reads as UTC. A signal comes along so the query can be cancelled.
     expect(fetchMeteoData).toHaveBeenCalledWith(
       '2024-01-01T00:00:00',
       '2024-01-05T23:59:59',
@@ -117,6 +128,7 @@ describe('Dashboard Component', () => {
       'Daily',
       [],
       '',
+      expect.any(AbortSignal),
     );
   });
 
@@ -156,6 +168,7 @@ describe('Dashboard Component', () => {
       'Daily',
       [],
       'Europe/Berlin',
+      expect.any(AbortSignal),
     );
 
     // The form states how it read the dates, because a wrong zone shifts the whole
@@ -201,5 +214,61 @@ describe('Dashboard Component', () => {
     // The station label is cosmetic: the measurements still have to be readable.
     expect(screen.getByText(rowWithoutStation.Datetime)).toBeInTheDocument();
     expect(screen.getByText('2.4')).toBeInTheDocument();
+  });
+
+  it('cancels a superseded query and ignores its late response', async () => {
+    // Completed by hand so the answers arrive in the wrong order, which is what a slow
+    // first response racing a fast second one looks like from the UI.
+    const first = deferred<typeof SAMPLE_RESPONSE>();
+    const second = deferred<typeof SAMPLE_RESPONSE>();
+    vi.mocked(fetchMeteoData)
+      .mockImplementationOnce(() => first.promise)
+      .mockImplementationOnce(() => second.promise);
+    await renderWithStations([GABRIEL]);
+
+    const form = screen.getByRole('button', { name: /Analyze Data/i }).closest('form');
+    // Submitted through the form: the button is disabled while a query runs, but a
+    // disabled control is not a synchronisation primitive, so the guard has to hold
+    // however the second request reaches the handler.
+    fireEvent.submit(form as HTMLFormElement);
+    fireEvent.submit(form as HTMLFormElement);
+
+    // The first request is genuinely cancelled rather than merely ignored.
+    const signals = vi.mocked(fetchMeteoData).mock.calls.map((call) => call[6]);
+    expect(signals[0]?.aborted).toBe(true);
+    expect(signals[1]?.aborted).toBe(false);
+
+    // The superseded request must not clear the spinner on its way out either, or the
+    // form would claim to be idle while the query that matters is still running.
+    expect(screen.getByRole('button', { name: /Analyze Data/i })).toBeDisabled();
+
+    second.resolve(SAMPLE_RESPONSE);
+    expect(await screen.findByText(/Max Temperature/i)).toBeInTheDocument();
+
+    // The stale payload replaces nothing and reports nothing: it is a cancellation,
+    // not a failure. Resolving it inside `act` is what forces its continuation to run
+    // before the assertions, instead of leaving it queued as a microtask.
+    await act(async () => {
+      first.resolve({ ...SAMPLE_RESPONSE, data: [] });
+    });
+
+    expect(screen.getByText('2.4 ºC')).toBeInTheDocument();
+    expect(screen.queryByText(/Data Fetch Error/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Analyze Data/i })).toBeEnabled();
+  });
+
+  it('abandons the in-flight query when the dashboard unmounts', async () => {
+    vi.mocked(fetchStations).mockResolvedValue([GABRIEL]);
+    vi.mocked(fetchMeteoData).mockReturnValue(new Promise<never>(() => {}));
+    const { unmount } = render(<Dashboard />);
+    await screen.findByRole('option', { name: /Gabriel de Castilla/ });
+
+    fireEvent.click(screen.getByRole('button', { name: /Analyze Data/i }));
+    const signal = vi.mocked(fetchMeteoData).mock.calls[0][6];
+    expect(signal?.aborted).toBe(false);
+
+    // Leaving the page should stop paying for a reply nobody will read.
+    unmount();
+    expect(signal?.aborted).toBe(true);
   });
 });

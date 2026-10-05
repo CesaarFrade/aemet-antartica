@@ -1,5 +1,5 @@
-import { useState, useMemo, useEffect } from 'react';
-import { fetchMeteoData, fetchStations, type StationInfo } from '../services/apiService';
+import { useState, useMemo, useEffect, useRef } from 'react';
+import { fetchMeteoData, fetchStations, isAbortError, type StationInfo } from '../services/apiService';
 import { LOCATION_GROUPS, DEFAULT_LOCATION, describeLocation } from '../constants/locations';
 import type { ApiResponse } from '../types/api';
 import SelectField, { CONTROL_CLASS } from './SelectField';
@@ -31,17 +31,20 @@ export default function Dashboard() {
   // The station picker is populated from the API instead of hardcoded, so the UI can
   // never offer an identifier the service does not know about. The first station is
   // pre-selected once the list arrives, matching the pre-filled date defaults.
+  //
+  // The controller replaces the usual `let active = true` guard: it both suppresses the
+  // update after unmount and stops the request instead of leaving it in flight.
   useEffect(() => {
-    let active = true;
+    const controller = new AbortController();
 
-    fetchStations()
+    fetchStations(controller.signal)
       .then((data) => {
-        if (!active) return;
         setStations(data);
         setEstacion((current) => current || data[0]?.id || '');
       })
       .catch((err: unknown) => {
-        if (!active) return;
+        // Unmounting mid-flight aborts on purpose, and that is not a failure to report.
+        if (isAbortError(err)) return;
         setStationsError(
           err instanceof Error
             ? err.message
@@ -49,9 +52,7 @@ export default function Dashboard() {
         );
       });
 
-    return () => {
-      active = false;
-    };
+    return () => controller.abort();
   }, []);
   
   const [viewMode, setViewMode] = useState<'chart' | 'table'>('chart');
@@ -62,21 +63,45 @@ export default function Dashboard() {
     );
   };
 
+  // Owns the in-flight query so a newer submission can cancel it. Kept in a ref
+  // because it is plumbing, not something to re-render on.
+  const queryAbortRef = useRef<AbortController | null>(null);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Whatever is in flight is already stale: the user just asked for something else.
+    queryAbortRef.current?.abort();
+    const controller = new AbortController();
+    queryAbortRef.current = controller;
+
     setLoading(true);
     setError(null);
     setApiResponse(null);
 
     try {
-      const response = await fetchMeteoData(fechaIni, fechaFin, estacion, aggregation, selectedVars, location);
-      setApiResponse(response);
+      const response = await fetchMeteoData(fechaIni, fechaFin, estacion, aggregation, selectedVars, location, controller.signal);
+      // Identity check as well as the abort: it keeps a late response harmless even if
+      // the transport could not cancel, which is the case for the mock in the tests.
+      if (queryAbortRef.current === controller) {
+        setApiResponse(response);
+      }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Unknown error connecting to the server');
+      // Being replaced is not an error, and only the request that still owns the ref
+      // gets to report or clear anything.
+      if (!isAbortError(err) && queryAbortRef.current === controller) {
+        setError(err instanceof Error ? err.message : 'Unknown error connecting to the server');
+      }
     } finally {
-      setLoading(false);
+      if (queryAbortRef.current === controller) {
+        queryAbortRef.current = null;
+        setLoading(false);
+      }
     }
   };
+
+  // Leaving the page abandons the query instead of letting it finish into nothing.
+  useEffect(() => () => queryAbortRef.current?.abort(), []);
 
   const kpis = useMemo(() => {
     if (!apiResponse?.data || apiResponse.data.length === 0) return null;
@@ -201,6 +226,9 @@ export default function Dashboard() {
               
               <button 
                 type="submit" disabled={loading}
+                // The spinner replaces the label while loading, so the accessible name
+                // is pinned here; otherwise the control goes nameless mid-request.
+                aria-label="Analyze Data"
                 className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-8 rounded-md transition-all flex items-center justify-center min-w-[140px]"
               >
                 {loading ? (

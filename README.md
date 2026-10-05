@@ -618,7 +618,7 @@ fixed, so none of them can come back silently.
 
 ### Frontend
 
-Eight component tests (`frontend/src/components/Dashboard.test.tsx`) run on Vitest
+Ten component tests (`frontend/src/components/Dashboard.test.tsx`) run on Vitest
 and React Testing Library, covering the contract between the dashboard and the API:
 
 - the main view renders;
@@ -630,6 +630,8 @@ and React Testing Library, covering the contract between the dashboard and the A
   and a chosen zone reaches the service verbatim;
 - a payload with no `Station` column, which is what the backend returns when the
   upstream record carried no label, still renders its measurements;
+- a superseded query is cancelled, its late response is ignored, and it neither
+  clears the spinner nor raises an error; leaving the page cancels the query;
 - an upstream failure is surfaced as an error, not as an empty result, and the form
   recovers.
 
@@ -679,6 +681,11 @@ A React 19.2.8 + TypeScript single-page app built with Vite and Tailwind CSS.
   for pattern recognition and precise inspection respectively.
 - Empty datasets, including periods with a station transmission blackout, render a
   clear "No data" state instead of breaking.
+- Every request carries an `AbortController` signal. Submitting again cancels the
+  query in flight, and leaving the page cancels it too, so a superseded response can
+  neither keep uploading nor land on top of a newer one. A cancelled request is not
+  treated as an error: reporting it would show a failure for a request the user
+  replaced themselves.
 - `data_types` and `aggregation` map directly to the endpoint's query parameters.
 - A `Location` dropdown controls the `location` parameter, so the dates can be typed as
   local wall-clock time. It offers both forms the brief allows — IANA zones and fixed
@@ -690,8 +697,6 @@ A React 19.2.8 + TypeScript single-page app built with Vite and Tailwind CSS.
 
 ### Known frontend issues
 
-- Requests are not cancelled. Rapidly changing filters can let a slower earlier
-  response overwrite a newer one.
 - The table renders every row without virtualisation, and computes its extremes with
   `Math.max(...rows)`. A full year of native 10-minute data is ~52,600 rows, which
   is survivable but heavy; the spread would only overflow past ~125,000 rows
@@ -806,7 +811,6 @@ per-station coverage queries and the index slower.
 
 ### Frontend
 
-- [ ] Add `AbortController` to cancel stale requests when filters change quickly.
 - [ ] Paginate or virtualise the raw data table.
 - [ ] Replace the curated `location` list with a searchable combobox over the full IANA
   catalogue, so an unusual zone can be typed instead of picked.
