@@ -7,7 +7,8 @@ export const fetchMeteoData = async (
   fechaFin: string,
   estacion: string,
   aggregation: string = 'None',
-  dataTypes: string[] = []
+  dataTypes: string[] = [],
+  location: string = ''
 ): Promise<ApiResponse> => {
   let url = `${API_BASE_URL}/api/antartida/datos/fechaini/${fechaIni}/fechafin/${fechaFin}/estacion/${encodeURIComponent(estacion)}?aggregation=${aggregation}`;
 
@@ -15,6 +16,15 @@ export const fetchMeteoData = async (
     dataTypes.forEach(type => {
       url += `&data_types=${encodeURIComponent(type)}`;
     });
+  }
+
+  // Only sent when the analyst actually picked something: the endpoint reads an
+  // absent `location` as UTC, the zone AEMET publishes on, so omitting it by default
+  // keeps the request identical to the one the backend has always received.
+  if (location) {
+    // `encodeURIComponent` is what turns the sign into `%2B`; a bare `+02:00` would
+    // otherwise be read as a space by the query parser.
+    url += `&location=${encodeURIComponent(location)}`;
   }
 
   const response = await fetch(url);

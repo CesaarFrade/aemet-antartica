@@ -1,6 +1,8 @@
 import { useState, useMemo, useEffect } from 'react';
 import { fetchMeteoData, fetchStations, type StationInfo } from '../services/apiService';
+import { LOCATION_GROUPS, DEFAULT_LOCATION, describeLocation } from '../constants/locations';
 import type { ApiResponse } from '../types/api';
+import SelectField, { CONTROL_CLASS } from './SelectField';
 import WeatherChart from './WeatherChart';
 
 const AVAILABLE_VARS = [
@@ -15,6 +17,9 @@ export default function Dashboard() {
   const [estacion, setEstacion] = useState('');
   const [aggregation, setAggregation] = useState('Daily');
   const [selectedVars, setSelectedVars] = useState<string[]>([]);
+  // Time zone the typed dates are written in. Defaults to UTC, which is what the
+  // endpoint assumes when the parameter is absent, so the initial query is unchanged.
+  const [location, setLocation] = useState(DEFAULT_LOCATION);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -64,7 +69,7 @@ export default function Dashboard() {
     setApiResponse(null);
 
     try {
-      const response = await fetchMeteoData(fechaIni, fechaFin, estacion, aggregation, selectedVars);
+      const response = await fetchMeteoData(fechaIni, fechaFin, estacion, aggregation, selectedVars, location);
       setApiResponse(response);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Unknown error connecting to the server');
@@ -103,36 +108,33 @@ export default function Dashboard() {
 
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
           <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-              <div className="flex flex-col space-y-1">
-                <label htmlFor="station-select" className="text-sm font-medium text-slate-600">Station</label>
-                <select
-                  id="station-select"
-                  value={estacion}
-                  onChange={(e) => setEstacion(e.target.value)}
-                  className="px-3 py-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 bg-white disabled:bg-slate-100 disabled:text-slate-400"
-                  disabled={stations.length === 0}
-                  required
-                >
-                  {stations.length === 0 ? (
-                    <option value="">
-                      {stationsError ? 'Stations unavailable' : 'Loading stations...'}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 items-end">
+              <SelectField
+                id="station-select"
+                label="Station"
+                value={estacion}
+                onChange={setEstacion}
+                disabled={stations.length === 0}
+                required
+              >
+                {stations.length === 0 ? (
+                  <option value="">
+                    {stationsError ? 'Stations unavailable' : 'Loading stations...'}
+                  </option>
+                ) : (
+                  stations.map((st) => (
+                    <option key={st.id} value={st.id}>
+                      {st.name} ({st.id})
                     </option>
-                  ) : (
-                    stations.map((st) => (
-                      <option key={st.id} value={st.id}>
-                        {st.name} ({st.id})
-                      </option>
-                    ))
-                  )}
-                </select>
-              </div>
+                  ))
+                )}
+              </SelectField>
               <div className="flex flex-col space-y-1">
                 <label htmlFor="fecha-ini" className="text-sm font-medium text-slate-600">Start Date</label>
                 <input 
                   id="fecha-ini"
                   type="text" value={fechaIni} onChange={(e) => setFechaIni(e.target.value)}
-                  className="px-3 py-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500" required
+                  className={CONTROL_CLASS} required
                 />
               </div>
               <div className="flex flex-col space-y-1">
@@ -140,23 +142,44 @@ export default function Dashboard() {
                 <input 
                   id="fecha-fin"
                   type="text" value={fechaFin} onChange={(e) => setFechaFin(e.target.value)}
-                  className="px-3 py-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500" required
+                  className={CONTROL_CLASS} required
                 />
               </div>
-              <div className="flex flex-col space-y-1">
-                <label htmlFor="aggregation-select" className="text-sm font-medium text-slate-600">Aggregation</label>
-                <select 
-                  id="aggregation-select"
-                  value={aggregation} onChange={(e) => setAggregation(e.target.value)}
-                  className="px-3 py-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 bg-white"
-                >
-                  <option value="None">None (10 min)</option>
-                  <option value="Hourly">Hourly</option>
-                  <option value="Daily">Daily</option>
-                  <option value="Monthly">Monthly</option>
-                </select>
-              </div>
+              <SelectField
+                id="aggregation-select"
+                label="Aggregation"
+                value={aggregation}
+                onChange={setAggregation}
+              >
+                <option value="None">None (10 min)</option>
+                <option value="Hourly">Hourly</option>
+                <option value="Daily">Daily</option>
+                <option value="Monthly">Monthly</option>
+              </SelectField>
+              <SelectField
+                id="location-select"
+                label="Location"
+                value={location}
+                onChange={setLocation}
+              >
+                {LOCATION_GROUPS.map((group) => (
+                  <optgroup key={group.label} label={group.label}>
+                    {group.options.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </SelectField>
             </div>
+
+            {/* Reading the dates in the wrong zone silently shifts the whole window by
+                hours, so the current interpretation is always spelled out. */}
+            <p data-testid="location-hint" className="text-xs text-slate-500">
+              Dates are read as <span className="font-medium text-slate-600">{describeLocation(location)}</span>.
+              The response is always rendered in Europe/Madrid (CET/CEST) including the offset.
+            </p>
 
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center pt-4 border-t border-slate-100">
               <div className="flex items-center space-x-4 mb-4 md:mb-0">

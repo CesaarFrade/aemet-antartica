@@ -107,14 +107,59 @@ describe('Dashboard Component', () => {
     expect(screen.getByTestId('weather-chart')).toBeInTheDocument();
 
     // The filters are forwarded verbatim: pre-filled dates, the pre-selected station,
-    // the default 'Daily' aggregation and no data type restriction.
+    // the default 'Daily' aggregation, no data type restriction and no location, which
+    // the backend reads as UTC.
     expect(fetchMeteoData).toHaveBeenCalledWith(
       '2024-01-01T00:00:00',
       '2024-01-05T23:59:59',
       '89064',
       'Daily',
       [],
+      '',
     );
+  });
+
+  it('offers both location forms the endpoint accepts and defaults to UTC', async () => {
+    await renderWithStations([GABRIEL]);
+
+    // The brief allows either an IANA zone or a fixed offset, and a stale value would
+    // be answered with a 400, so both shapes have to be reachable from the UI.
+    expect(screen.getByRole('group', { name: 'Named time zone (IANA)' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Fixed offset (DST ignored)' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Europe/Madrid (CET/CEST)' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: '+02:00 (CEST, fixed)' })).toBeInTheDocument();
+
+    // Nothing is chosen by default, which keeps the request on the UTC assumption
+    // the endpoint already made.
+    expect(screen.getByLabelText('Location')).toHaveValue('');
+    expect(screen.getByTestId('location-hint')).toHaveTextContent('UTC (AEMET publishes on)');
+  });
+
+  it('sends the selected location so wall-clock dates are not read as UTC', async () => {
+    vi.mocked(fetchMeteoData).mockResolvedValue(SAMPLE_RESPONSE);
+    await renderWithStations([GABRIEL]);
+
+    fireEvent.change(screen.getByLabelText('Location'), {
+      target: { value: 'Europe/Berlin' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Analyze Data/i }));
+
+    expect(await screen.findByText(/Max Temperature/i)).toBeInTheDocument();
+
+    // The choice reaches the API verbatim; the backend resolves it with ZoneInfo, so
+    // a DST-aware zone and a fixed offset are not interchangeable.
+    expect(fetchMeteoData).toHaveBeenCalledWith(
+      '2024-01-01T00:00:00',
+      '2024-01-05T23:59:59',
+      '89064',
+      'Daily',
+      [],
+      'Europe/Berlin',
+    );
+
+    // The form states how it read the dates, because a wrong zone shifts the whole
+    // requested window by hours without looking like an error.
+    expect(screen.getByTestId('location-hint')).toHaveTextContent('Europe/Berlin');
   });
 
   it('surfaces an upstream failure instead of showing an empty result', async () => {

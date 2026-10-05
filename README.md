@@ -223,8 +223,11 @@ boundaries behave identically on Windows, macOS and Linux.
         ├── App.tsx               # Layout and filter state.
         ├── index.css             # Tailwind layers and base styles.
         ├── components/
-        │   ├── Dashboard.tsx     # Station picker, aggregation, date range.
+        │   ├── Dashboard.tsx     # Station picker, aggregation, date range, location.
+        │   ├── SelectField.tsx   # Shared labelled <select> for the filter form.
         │   └── WeatherChart.tsx  # Recharts series + raw data table.
+        ├── constants/
+        │   └── locations.ts      # Accepted `location` values, curated.
         ├── services/
         │   └── apiService.ts     # HTTP client for the backend.
         ├── test/
@@ -615,7 +618,7 @@ fixed, so none of them can come back silently.
 
 ### Frontend
 
-Five component tests (`frontend/src/components/Dashboard.test.tsx`) run on Vitest
+Seven component tests (`frontend/src/components/Dashboard.test.tsx`) run on Vitest
 and React Testing Library, covering the contract between the dashboard and the API:
 
 - the main view renders;
@@ -623,6 +626,8 @@ and React Testing Library, covering the contract between the dashboard and the A
   `GET /api/antartida/estaciones`, with the first one pre-selected;
 - a successful query renders the derived KPI cards and forwards the current filters
   to the service;
+- the location picker offers both accepted forms, defaults to sending no `location`,
+  and a chosen zone reaches the service verbatim;
 - an upstream failure is surfaced as an error, not as an empty result, and the form
   recovers.
 
@@ -673,6 +678,13 @@ A React 19.2.8 + TypeScript single-page app built with Vite and Tailwind CSS.
 - Empty datasets, including periods with a station transmission blackout, render a
   clear "No data" state instead of breaking.
 - `data_types` and `aggregation` map directly to the endpoint's query parameters.
+- A `Location` dropdown controls the `location` parameter, so the dates can be typed as
+  local wall-clock time. It offers both forms the brief allows — IANA zones and fixed
+  offsets such as `+02:00` — because the two differ exactly where the brief cares: a
+  named zone follows daylight saving, a fixed offset does not. The line under the form
+  always names the zone currently in use, since reading the dates in the wrong one
+  shifts the requested window by hours without looking like an error. Leaving it on the
+  default sends no parameter at all, which the endpoint already reads as UTC.
 
 ### Known frontend issues
 
@@ -684,11 +696,10 @@ A React 19.2.8 + TypeScript single-page app built with Vite and Tailwind CSS.
   (roughly 2.4 years), at which point it throws instead of degrading.
 - `Station` is declared as required in `src/types/api.ts`, but the backend omits
   the column when the upstream payload carries no label.
-- The `location` parameter of the brief is **backend-only**: the dashboard has no
-  timezone control and never sends it, so every query is interpreted as UTC input.
-  The endpoint defaults to UTC, which is the zone AEMET publishes on, so the
-  results are correct as shown — but a user cannot submit local wall-clock times.
-  This is the one brief parameter with no UI control; see the TODO below.
+- The `location` picker offers a curated list of zones rather than the full IANA
+  catalogue. `Intl.supportedValuesOf('timeZone')` would provide ~400 zones, but a native
+  `<select>` cannot be filtered, so the useful handful wins over completeness. Every
+  value offered is one the endpoint accepts, so no request can fail validation.
 
 ---
 
@@ -799,5 +810,5 @@ per-station coverage queries and the index slower.
 - [ ] Add `AbortController` to cancel stale requests when filters change quickly.
 - [ ] Paginate or virtualise the raw data table.
 - [ ] Make `Station` optional in `src/types/api.ts`, matching the backend.
-- [ ] Add a `location` / timezone control to the dashboard: the endpoint accepts an
-  IANA zone or a fixed offset, but the UI can only submit UTC input.
+- [ ] Replace the curated `location` list with a searchable combobox over the full IANA
+  catalogue, so an unusual zone can be typed instead of picked.
