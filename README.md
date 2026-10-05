@@ -801,4 +801,3 @@ per-station coverage queries and the index slower.
 - [ ] Make `Station` optional in `src/types/api.ts`, matching the backend.
 - [ ] Add a `location` / timezone control to the dashboard: the endpoint accepts an
   IANA zone or a fixed offset, but the UI can only submit UTC input.
-- [ ] Remove the Vite boilerplate: `src/assets/`, `src/App.css`.
