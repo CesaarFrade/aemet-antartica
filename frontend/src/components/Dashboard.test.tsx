@@ -2,6 +2,7 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fetchStations, fetchMeteoData } from '../services/apiService';
+import type { MeteoData } from '../types/api';
 import Dashboard from './Dashboard';
 
 // The API client is mocked so the suite never reaches the real backend, mirroring
@@ -178,5 +179,27 @@ describe('Dashboard Component', () => {
 
     // The form recovers: the button is re-enabled once the request settles.
     expect(screen.getByRole('button', { name: /Analyze Data/i })).toBeEnabled();
+  });
+
+  it('renders rows from a payload that carries no Station column', async () => {
+    // The backend omits `Station` entirely when the upstream payload had no label, so
+    // this is a shape the UI has to survive rather than a hypothetical. Annotating with
+    // `MeteoData` and deleting the key only type-checks because the field is optional,
+    // which makes the delete a compile-time assertion of the fix.
+    const rowWithoutStation: MeteoData = { ...SAMPLE_RESPONSE.data[0] };
+    delete rowWithoutStation.Station;
+    vi.mocked(fetchMeteoData).mockResolvedValue({
+      ...SAMPLE_RESPONSE,
+      data: [rowWithoutStation],
+    });
+    await renderWithStations([GABRIEL]);
+
+    fireEvent.click(screen.getByRole('button', { name: /Analyze Data/i }));
+    await screen.findByText(/Max Temperature/i);
+    fireEvent.click(screen.getByRole('button', { name: /Data Table/i }));
+
+    // The station label is cosmetic: the measurements still have to be readable.
+    expect(screen.getByText(rowWithoutStation.Datetime)).toBeInTheDocument();
+    expect(screen.getByText('2.4')).toBeInTheDocument();
   });
 });

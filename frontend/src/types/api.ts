@@ -1,5 +1,10 @@
 export interface MeteoData {
-  Station: string;
+  // Optional on purpose: the backend only replays `nombre` when a label was actually
+  // stored, so a cache hit for a payload without one has no `Station` key at all.
+  // Emitting an empty one would make a cache hit differ from a cache miss for the
+  // same request, which is the invariant the backend is protecting (see
+  // `_restore_raw_records` in `backend/api/routes.py`).
+  Station?: string;
   Datetime: string;
   "Temperature (ºC)": number | null;
   "Pressure (hpa)": number | null;

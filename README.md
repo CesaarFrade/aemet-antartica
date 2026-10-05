@@ -618,7 +618,7 @@ fixed, so none of them can come back silently.
 
 ### Frontend
 
-Seven component tests (`frontend/src/components/Dashboard.test.tsx`) run on Vitest
+Eight component tests (`frontend/src/components/Dashboard.test.tsx`) run on Vitest
 and React Testing Library, covering the contract between the dashboard and the API:
 
 - the main view renders;
@@ -628,6 +628,8 @@ and React Testing Library, covering the contract between the dashboard and the A
   to the service;
 - the location picker offers both accepted forms, defaults to sending no `location`,
   and a chosen zone reaches the service verbatim;
+- a payload with no `Station` column, which is what the backend returns when the
+  upstream record carried no label, still renders its measurements;
 - an upstream failure is surfaced as an error, not as an empty result, and the form
   recovers.
 
@@ -694,8 +696,6 @@ A React 19.2.8 + TypeScript single-page app built with Vite and Tailwind CSS.
   `Math.max(...rows)`. A full year of native 10-minute data is ~52,600 rows, which
   is survivable but heavy; the spread would only overflow past ~125,000 rows
   (roughly 2.4 years), at which point it throws instead of degrading.
-- `Station` is declared as required in `src/types/api.ts`, but the backend omits
-  the column when the upstream payload carries no label.
 - The `location` picker offers a curated list of zones rather than the full IANA
   catalogue. `Intl.supportedValuesOf('timeZone')` would provide ~400 zones, but a native
   `<select>` cannot be filtered, so the useful handful wins over completeness. Every
@@ -809,6 +809,5 @@ per-station coverage queries and the index slower.
 
 - [ ] Add `AbortController` to cancel stale requests when filters change quickly.
 - [ ] Paginate or virtualise the raw data table.
-- [ ] Make `Station` optional in `src/types/api.ts`, matching the backend.
 - [ ] Replace the curated `location` list with a searchable combobox over the full IANA
   catalogue, so an unusual zone can be typed instead of picked.
